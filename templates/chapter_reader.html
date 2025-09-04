@@ -1,0 +1,117 @@
+{% extends "base.html" %}
+{% block title %}Reading {{ chapter.manga_title }} Ch. {{ chapter.chapter_number }}{% endblock %}
+{% block content %}
+<div class="text-center mb-6">
+    <h1 class="text-4xl font-bold text-white">{{ chapter.manga_title }}</h1>
+    <h2 class="text-2xl text-gray-400">Chapter {{ chapter.chapter_number }}</h2>
+    <div class="mt-4">
+        <a href="{{ url_for('manga_detail', manga_slug=chapter.manga_slug) }}" class="text-blue-400 hover:underline">&larr; Back to Chapter List</a>
+    </div>
+</div>
+
+<!-- Reader Controls -->
+<div class="sticky top-0 z-10 bg-gray-900/80 backdrop-blur-sm py-3 mb-6 flex justify-center items-center gap-4 rounded-lg shadow-lg">
+    <div class="text-white font-semibold" id="page-counter"></div>
+    <div class="flex items-center gap-2">
+        <span class="text-sm text-gray-400">Reading Mode:</span>
+        <button id="mode-long-strip" class="px-3 py-1 text-sm font-medium rounded-md bg-blue-600 text-white">Long Strip</button>
+        <button id="mode-paged" class="px-3 py-1 text-sm font-medium rounded-md bg-gray-700 text-gray-300 hover:bg-gray-600">Paged</button>
+    </div>
+</div>
+
+<!-- Paged View Container -->
+<div id="paged-view" class="hidden flex-col items-center">
+    <div class="w-full max-w-4xl mb-4 relative">
+        <img id="paged-image" src="" alt="Page" class="w-full h-auto rounded-md shadow-lg" loading="lazy">
+    </div>
+    <div class="flex items-center justify-center gap-4 text-white">
+        <button id="prev-page" class="px-6 py-2 bg-gray-700 rounded-md hover:bg-gray-600 transition-colors">&larr; Previous</button>
+        <span id="paged-counter" class="font-semibold text-lg"></span>
+        <button id="next-page" class="px-6 py-2 bg-gray-700 rounded-md hover:bg-gray-600 transition-colors">Next &rarr;</button>
+    </div>
+</div>
+
+<!-- Long Strip View Container -->
+<div id="long-strip-view" class="flex flex-col items-center">
+    {% for page_file_id in chapter.pages %}
+    <div class="w-full max-w-4xl bg-gray-800 mb-1">
+        <img src="{{ url_for('get_telegram_image', file_id=page_file_id) }}" 
+             alt="Page" 
+             class="w-full h-auto"
+             loading="lazy">
+    </div>
+    {% endfor %}
+</div>
+
+<div class="text-center mt-8">
+    <a href="{{ url_for('manga_detail', manga_slug=chapter.manga_slug) }}" class="text-blue-400 hover:underline">&larr; Back to Chapter List</a>
+</div>
+
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        const pageFileIDs = {{ chapter.pages | tojson }};
+        const pageURLs = pageFileIDs.map(id => `{{ url_for('index') }}image/${id}`);
+        
+        let currentPageIndex = 0;
+        const totalPages = pageURLs.length;
+
+        const longStripView = document.getElementById('long-strip-view');
+        const pagedView = document.getElementById('paged-view');
+        const modeLongStripBtn = document.getElementById('mode-long-strip');
+        const modePagedBtn = document.getElementById('mode-paged');
+        const pagedImage = document.getElementById('paged-image');
+        const prevPageBtn = document.getElementById('prev-page');
+        const nextPageBtn = document.getElementById('next-page');
+        const pagedCounter = document.getElementById('paged-counter');
+        const topCounter = document.getElementById('page-counter');
+
+        function updatePagedView() {
+            if (totalPages === 0) return;
+            pagedImage.src = pageURLs[currentPageIndex];
+            const pageNumText = `Page ${currentPageIndex + 1} of ${totalPages}`;
+            pagedCounter.textContent = pageNumText;
+            topCounter.textContent = pageNumText;
+            
+            prevPageBtn.disabled = currentPageIndex === 0;
+            nextPageBtn.disabled = currentPageIndex === totalPages - 1;
+            
+            prevPageBtn.classList.toggle('opacity-50', prevPageBtn.disabled);
+            nextPageBtn.classList.toggle('opacity-50', nextPageBtn.disabled);
+
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+
+        function showLongStrip() {
+            longStripView.classList.remove('hidden');
+            pagedView.classList.add('hidden');
+            topCounter.textContent = '';
+
+            modeLongStripBtn.className = 'px-3 py-1 text-sm font-medium rounded-md bg-blue-600 text-white';
+            modePagedBtn.className = 'px-3 py-1 text-sm font-medium rounded-md bg-gray-700 text-gray-300 hover:bg-gray-600';
+        }
+
+        function showPaged() {
+            longStripView.classList.add('hidden');
+            pagedView.classList.remove('hidden');
+            updatePagedView();
+
+            modePagedBtn.className = 'px-3 py-1 text-sm font-medium rounded-md bg-blue-600 text-white';
+            modeLongStripBtn.className = 'px-3 py-1 text-sm font-medium rounded-md bg-gray-700 text-gray-300 hover:bg-gray-600';
+        }
+
+        modeLongStripBtn.addEventListener('click', showLongStrip);
+        modePagedBtn.addEventListener('click', showPaged);
+        prevPageBtn.addEventListener('click', () => { if (currentPageIndex > 0) { currentPageIndex--; updatePagedView(); } });
+        nextPageBtn.addEventListener('click', () => { if (currentPageIndex < totalPages - 1) { currentPageIndex++; updatePagedView(); } });
+
+        document.addEventListener('keydown', (e) => {
+            if (pagedView.classList.contains('hidden')) return;
+            if (e.key === 'ArrowLeft') prevPageBtn.click();
+            else if (e.key === 'ArrowRight') nextPageBtn.click();
+        });
+
+        // Initialize default view
+        showLongStrip();
+    });
+</script>
+{% endblock %}
