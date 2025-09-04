@@ -99,8 +99,9 @@ def get_telegram_image(file_id):
 (SELECTING_ACTION, ADD_TITLE, ADD_DESC, ADD_COVER,
  SELECT_MANGA, ACTION_MENU, ADD_CHAPTER_METHOD,
  ADD_CHAPTER_ZIP, DELETE_CONFIRM, HELP_MENU,
- WAITING_FOR_COMMAND_INPUT, ADD_CHAPTER_MANUAL,
- SELECT_CHAPTER_DELETE) = range(13)
+ WAITING_FOR_COMMAND_INPUT, ADD_CHAPTER_NUMBER,
+ ADD_CHAPTER_MANUAL, SELECT_CHAPTER_DELETE, EDIT_TITLE, 
+ EDIT_DESC, EDIT_COVER) = range(17)
 
 def admin_only(func):
     """Decorator to check for admin access with enhanced error handling."""
@@ -404,7 +405,50 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             "📄 **Manual Chapter Addition**\n\nFirst, tell me the chapter number (e.g., '1', '2.5', '10'):",
             parse_mode=ParseMode.MARKDOWN
         )
-        return ADD_CHAPTER_MANUAL
+        return ADD_CHAPTER_NUMBER
+    
+    elif query.data == "edit_info":
+        manga_slug = context.user_data.get('selected_manga_slug')
+        with DATA_LOCK:
+            manga = MANGA_DATA.get(manga_slug)
+            if not manga:
+                await query.edit_message_text("❌ Comic not found.")
+                return SELECTING_ACTION
+        
+        keyboard = [
+            [InlineKeyboardButton("✏️ Edit Title", callback_data="edit_title")],
+            [InlineKeyboardButton("📝 Edit Description", callback_data="edit_description")],
+            [InlineKeyboardButton("🖼️ Edit Cover", callback_data="edit_cover")],
+            [InlineKeyboardButton("⬅️ Back", callback_data=f"select_{manga_slug}")]
+        ]
+        
+        await query.edit_message_text(
+            f'📝 **Edit Comic Info**\n\n📚 **Current Title:** {manga["title"]}\n📖 **Current Description:** {manga.get("description", "No description")}\n\nWhat would you like to edit?',
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode=ParseMode.MARKDOWN
+        )
+        return ACTION_MENU
+    
+    elif query.data == "edit_title":
+        await query.edit_message_text(
+            "✏️ **Edit Comic Title**\n\nSend me the new title for this comic:",
+            parse_mode=ParseMode.MARKDOWN
+        )
+        return EDIT_TITLE
+    
+    elif query.data == "edit_description":
+        await query.edit_message_text(
+            "📝 **Edit Comic Description**\n\nSend me the new description for this comic:",
+            parse_mode=ParseMode.MARKDOWN
+        )
+        return EDIT_DESC
+    
+    elif query.data == "edit_cover":
+        await query.edit_message_text(
+            "🖼️ **Edit Comic Cover**\n\nSend me a new cover image for this comic.\n\n💡 **Tip:** Send as a document for full quality, or as a photo for compressed version.\n\nType /skip to remove the current cover.",
+            parse_mode=ParseMode.MARKDOWN
+        )
+        return EDIT_COVER
     
     elif query.data == "delete_comic":
         manga_slug = context.user_data.get('selected_manga_slug')
@@ -1057,6 +1101,148 @@ async def receive_cover(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     return SELECTING_ACTION
 
 @admin_only
+async def receive_edit_title(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Receive new title for comic editing."""
+    new_title = update.message.text.strip()
+    manga_slug = context.user_data.get('selected_manga_slug')
+    
+    if not manga_slug:
+        await update.message.reply_text("❌ Comic not found.")
+        return SELECTING_ACTION
+    
+    with DATA_LOCK:
+        if manga_slug in MANGA_DATA:
+            old_title = MANGA_DATA[manga_slug]['title']
+            MANGA_DATA[manga_slug]['title'] = new_title
+    
+    await save_data_to_channel(context)
+    
+    await update.message.reply_text(
+        f'✅ **Title Updated**\n\nOld title: "{old_title}"\nNew title: "{new_title}"\n\nThe comic title has been updated on your website!',
+        parse_mode=ParseMode.MARKDOWN
+    )
+    
+    # Return to comic management after 2 seconds
+    await asyncio.sleep(2)
+    return await show_comic_menu(update, context, manga_slug)
+
+@admin_only
+async def receive_edit_description(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Receive new description for comic editing."""
+    new_description = update.message.text.strip()
+    manga_slug = context.user_data.get('selected_manga_slug')
+    
+    if not manga_slug:
+        await update.message.reply_text("❌ Comic not found.")
+        return SELECTING_ACTION
+    
+    with DATA_LOCK:
+        if manga_slug in MANGA_DATA:
+            old_description = MANGA_DATA[manga_slug].get('description', 'No description')
+            MANGA_DATA[manga_slug]['description'] = new_description
+    
+    await save_data_to_channel(context)
+    
+    await update.message.reply_text(
+        f'✅ **Description Updated**\n\nNew description: "{new_description}"\n\nThe comic description has been updated on your website!',
+        parse_mode=ParseMode.MARKDOWN
+    )
+    
+    # Return to comic management after 2 seconds
+    await asyncio.sleep(2)
+    return await show_comic_menu(update, context, manga_slug)
+
+@admin_only
+async def receive_edit_cover(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Receive new cover image for comic editing."""
+    manga_slug = context.user_data.get('selected_manga_slug')
+    
+    if not manga_slug:
+        await update.message.reply_text("❌ Comic not found.")
+        return SELECTING_ACTION
+    
+    cover_file_id = None
+    cover_text = "🖼️ **Cover Updated**"
+    
+    if update.message.photo:
+        # Get the highest quality photo
+        photo = update.message.photo[-1]
+        cover_file_id = photo.file_id
+        cover_text += " (Photo - Compressed)"
+    elif update.message.document and update.message.document.mime_type and update.message.document.mime_type.startswith('image/'):
+        cover_file_id = update.message.document.file_id
+        cover_text += " (Document - Full Quality)"
+    else:
+        await update.message.reply_text(
+            "❌ **Invalid File**\n\nPlease send an image file (photo or document).",
+            parse_mode=ParseMode.MARKDOWN
+        )
+        return EDIT_COVER
+    
+    with DATA_LOCK:
+        if manga_slug in MANGA_DATA:
+            MANGA_DATA[manga_slug]['cover_file_id'] = cover_file_id
+    
+    await save_data_to_channel(context)
+    
+    await update.message.reply_text(
+        f'{cover_text}\n\nThe comic cover has been updated on your website!',
+        parse_mode=ParseMode.MARKDOWN
+    )
+    
+    # Return to comic management after 2 seconds
+    await asyncio.sleep(2)
+    return await show_comic_menu(update, context, manga_slug)
+
+@admin_only
+async def skip_edit_cover(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Remove cover image for comic editing."""
+    manga_slug = context.user_data.get('selected_manga_slug')
+    
+    if not manga_slug:
+        await update.message.reply_text("❌ Comic not found.")
+        return SELECTING_ACTION
+    
+    with DATA_LOCK:
+        if manga_slug in MANGA_DATA:
+            MANGA_DATA[manga_slug]['cover_file_id'] = None
+    
+    await save_data_to_channel(context)
+    
+    await update.message.reply_text(
+        "🗑️ **Cover Removed**\n\nThe comic cover has been removed from your website!",
+        parse_mode=ParseMode.MARKDOWN
+    )
+    
+    # Return to comic management after 2 seconds
+    await asyncio.sleep(2)
+    return await show_comic_menu(update, context, manga_slug)
+
+async def show_comic_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, manga_slug: str) -> int:
+    """Helper function to show comic management menu."""
+    with DATA_LOCK:
+        manga = MANGA_DATA.get(manga_slug)
+        if not manga:
+            await update.message.reply_text("❌ Comic not found.")
+            return SELECTING_ACTION
+    
+    chapter_count = len(manga.get('chapters', {}))
+    
+    keyboard = [
+        [InlineKeyboardButton("➕ Add Chapter(s)", callback_data="add_chapters")],
+        [InlineKeyboardButton("📝 Edit Info", callback_data="edit_info")],
+        [InlineKeyboardButton("🗑️ Delete Comic", callback_data="delete_comic")],
+        [InlineKeyboardButton("⬅️ Back", callback_data="manage_manga")]
+    ]
+    
+    await update.message.reply_text(
+        f'📚 **"{manga["title"]}"**\n\n📖 **Chapters:** {chapter_count}\n📝 **Description:** {manga.get("description", "No description")}\n\nWhat would you like to do?',
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode=ParseMode.MARKDOWN
+    )
+    return ACTION_MENU
+
+@admin_only
 async def skip_cover(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Skip cover image."""
     context.user_data['cover_file_id'] = None
@@ -1148,14 +1334,25 @@ def setup_bot():
             ACTION_MENU: [CallbackQueryHandler(button_callback)],
             ADD_CHAPTER_METHOD: [CallbackQueryHandler(button_callback)],
             ADD_CHAPTER_ZIP: [MessageHandler(filters.Document.ZIP, receive_zip_file)],
+            ADD_CHAPTER_NUMBER: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_chapter_number)],
             ADD_CHAPTER_MANUAL: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, receive_chapter_number),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, receive_chapter_page),
                 MessageHandler(filters.PHOTO, receive_chapter_page),
                 MessageHandler(filters.Document.IMAGE, receive_chapter_page)
             ],
-            DELETE_CONFIRM: [CallbackQueryHandler(button_callback)]
+            DELETE_CONFIRM: [CallbackQueryHandler(button_callback)],
+            EDIT_TITLE: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_edit_title)],
+            EDIT_DESC: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_edit_description)],
+            EDIT_COVER: [
+                MessageHandler(filters.PHOTO, receive_edit_cover),
+                MessageHandler(filters.Document.IMAGE, receive_edit_cover),
+                CommandHandler('skip', skip_edit_cover)
+            ]
         },
-        fallbacks=[CommandHandler('cancel', cancel)]
+        fallbacks=[CommandHandler('cancel', cancel)],
+        per_message=False,
+        per_chat=True,
+        per_user=True
     )
     
     application.add_handler(conv_handler)
