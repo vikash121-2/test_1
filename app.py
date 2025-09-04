@@ -8,16 +8,14 @@ import zipfile
 import tempfile
 import re
 import json
-from pathlib import Path
 from functools import wraps
-from textwrap import dedent
 
 # Add current directory to Python path for proper import
 current_dir = os.path.dirname(os.path.abspath(__file__))
 if (current_dir not in sys.path):
     sys.path.insert(0, current_dir)
 
-from flask import Flask, render_template, redirect, url_for, abort
+from flask import Flask, render_template, redirect, abort
 from dotenv import load_dotenv
 
 import telegram
@@ -214,7 +212,7 @@ async def process_zip_chapters(context: ContextTypes.DEFAULT_TYPE, zip_file_cont
         if 'temp_zip_path' in locals():
             try:
                 os.unlink(temp_zip_path)
-            except:
+            except Exception:
                 pass
         return {}
 
@@ -998,7 +996,7 @@ async def receive_description(update: Update, context: ContextTypes.DEFAULT_TYPE
     context.user_data['description'] = description
     
     await update.message.reply_text(
-        f'✅ **Description Set**\n\nNow send me a cover image for this comic.\n\n💡 **Tip:** Send as a document for full quality, or as a photo for compressed version.\n\nType /skip to skip the cover image.',
+        '✅ **Description Set**\n\nNow send me a cover image for this comic.\n\n💡 **Tip:** Send as a document for full quality, or as a photo for compressed version.\n\nType /skip to skip the cover image.',
         parse_mode=ParseMode.MARKDOWN
     )
     return ADD_COVER
@@ -1156,7 +1154,7 @@ def setup_bot():
                 MessageHandler(filters.Document.IMAGE, receive_chapter_page)
             ],
             DELETE_CONFIRM: [CallbackQueryHandler(button_callback)]
-        ],
+        },
         fallbacks=[CommandHandler('cancel', cancel)]
     )
     
