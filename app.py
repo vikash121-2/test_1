@@ -1,4 +1,5 @@
 import os
+import sys
 import threading
 import logging
 import requests
@@ -10,6 +11,11 @@ import json
 from pathlib import Path
 from functools import wraps
 from textwrap import dedent
+
+# Add current directory to Python path for proper import
+current_dir = os.path.dirname(os.path.abspath(__file__))
+if (current_dir not in sys.path):
+    sys.path.insert(0, current_dir)
 
 from flask import Flask, render_template, redirect, url_for, abort
 from dotenv import load_dotenv
@@ -430,7 +436,10 @@ if __name__ == "__main__":
     if not all([local_token, local_admin_id, local_channel_id]):
         print("ERROR: For local run, set TELEGRAM_TOKEN, ADMIN_USER_ID, and CHANNEL_ID in .env file.")
     else:
+        print("✅ Starting application...")
         bot_thread = threading.Thread(target=run_bot, args=(local_token, local_admin_id, local_channel_id), daemon=True)
         bot_thread.start()
-        flask_app.run(host="0.0.0.0", port=5000, debug=True, use_reloader=False)
+        print("🤖 Bot thread started")
+        print("🚀 Starting Flask server...")
+        flask_app.run(host="0.0.0.0", port=5000, debug=False, use_reloader=False)
 
